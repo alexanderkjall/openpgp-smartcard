@@ -8,3 +8,4 @@ edition = "2018"
 
 [dependencies]
 pcsc = "2"
+byteorder = "1"
