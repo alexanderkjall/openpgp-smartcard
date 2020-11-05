@@ -138,7 +138,7 @@ fn main() -> Result<()> {
     };
 
     // Send an APDU command.
-    let apdu2 = CommandAPDU::new(0x00, 0xa4, 0x04, 0x00, vec![0x0A, 0xA0, 0x00, 0x00, 0x00, 0x62, 0x03, 0x01, 0x0C, 0x06], 0x01)?;
+    let apdu2 = CommandAPDU::new(0x00, 0xa4, 0x04, 0x00, vec![0xA0, 0x00, 0x00, 0x00, 0x62, 0x03, 0x01, 0x0C, 0x06, 0x01], 0x00)?;
     println!("Sending APDU: {:?}", apdu2);
     let mut rapdu_buf = [0; MAX_BUFFER_SIZE];
     let rapdu = match card.transmit(&Vec::from(apdu2), &mut rapdu_buf) {
@@ -152,4 +152,13 @@ fn main() -> Result<()> {
     println!("APDU response: {:?}", rapdu);
 
     Ok(())
+}
+
+mod test {
+    #[test]
+    fn apdu() {
+        let apdu = crate::CommandAPDU::new(0x00, 0xa4, 0x04, 0x00, vec![0xA0, 0x00, 0x00, 0x00, 0x62, 0x03, 0x01, 0x0C, 0x06, 0x01], 0x00).unwrap();
+
+        assert_eq!(&Vec::from(apdu), b"\x00\xa4\x04\x00\x0A\xA0\x00\x00\x00\x62\x03\x01\x0C\x06\x01");
+    }
 }
