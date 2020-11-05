@@ -1,7 +1,15 @@
-use pcsc::*;
+use pcsc::{Context, Scope, ShareMode, Protocols, MAX_BUFFER_SIZE};
 
 use byteorder::{WriteBytesExt, LittleEndian};
+use std::convert::TryFrom;
 
+mod error;
+
+use crate::error::Error;
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Debug)]
 struct CommandAPDU {
     cla: u8, // Instruction class - indicates the type of command, e.g. interindustry or proprietary
     ins: u8, // Instruction code - indicates the specific command, e.g. "write data"
@@ -19,6 +27,21 @@ struct CommandAPDU {
             // 3 bytes (if Lc was not present in the command), the first of which must be 0, denote Ne in the same way as two-byte Le
 }
 
+impl CommandAPDU {
+    pub fn new(cla: u8, ins:u8, p1:u8, p2:u8, data:Vec<u8>, le:u16) -> Result<CommandAPDU> {
+
+        Ok(CommandAPDU {
+            cla,
+            ins,
+            p1,
+            p2,
+            lc: data.len() as u16,
+            data,
+            le
+        })
+    }
+}
+
 impl From<CommandAPDU> for Vec<u8> {
     fn from(w: CommandAPDU) -> Vec<u8> {
         let mut v: Vec<u8> = vec![];
@@ -28,24 +51,50 @@ impl From<CommandAPDU> for Vec<u8> {
         v.push(w.p1);
         v.push(w.p2);
         match w.data.len() {
-            0 => nop,
-            1..255 => v.push(w.data.len() as u8),
+            0 => { },
+            1..=255 => v.push(w.data.len() as u8),
             _ => {
                 v.push(0);
                 v.write_u16::<LittleEndian>(w.data.len() as u16);
+            },
+        }
+        v.extend(w.data.clone());
+
+        match w.le {
+            0 => { },
+            1..=255 => v.push(w.le as u8),
+            _ => {
+                v.push(0);
+                v.write_u16::<LittleEndian>(w.le as u16);
             },
         }
         v
     }
 }
 
+#[derive(Debug)]
 struct ResponseAPDU {
     data: Vec<u8>, // Nr (at most Ne) 	Response data
     sw1: u8,
     sw2: u8 // Command processing status, e.g. 90 00 (hexadecimal) indicates success
 }
 
-fn main() {
+impl TryFrom<&[u8]> for ResponseAPDU {
+    type Error = crate::Error;
+
+    fn try_from(rapdu: &[u8]) -> Result<Self> {
+        if rapdu.len() < 2 {
+            return Err(crate::Error::from(""));
+        }
+        Ok(ResponseAPDU {
+            data: Vec::from(&rapdu[0..rapdu.len()-2]),
+            sw1: rapdu[rapdu.len()-2],
+            sw2: rapdu[rapdu.len()-1]
+        })
+    }
+}
+
+fn main() -> Result<()> {
     // Establish a PC/SC context.
     let ctx = match Context::establish(Scope::User) {
         Ok(ctx) => ctx,
@@ -70,7 +119,7 @@ fn main() {
         Some(reader) => reader,
         None => {
             println!("No readers are connected.");
-            return;
+            return Ok(());
         }
     };
     println!("Using reader: {:?}", reader);
@@ -78,9 +127,9 @@ fn main() {
     // Connect to the card.
     let card = match ctx.connect(reader, ShareMode::Shared, Protocols::ANY) {
         Ok(card) => card,
-        Err(Error::NoSmartcard) => {
+        Err(pcsc::Error::NoSmartcard) => {
             println!("A smartcard is not present in the reader.");
-            return;
+            return Ok(());
         }
         Err(err) => {
             eprintln!("Failed to connect to card: {}", err);
@@ -89,15 +138,18 @@ fn main() {
     };
 
     // Send an APDU command.
-    let apdu = b"\x00\xa4\x04\x00\x0A\xA0\x00\x00\x00\x62\x03\x01\x0C\x06\x01";
-    println!("Sending APDU: {:?}", apdu);
+    let apdu2 = CommandAPDU::new(0x00, 0xa4, 0x04, 0x00, vec![0x0A, 0xA0, 0x00, 0x00, 0x00, 0x62, 0x03, 0x01, 0x0C, 0x06], 0x01)?;
+    println!("Sending APDU: {:?}", apdu2);
     let mut rapdu_buf = [0; MAX_BUFFER_SIZE];
-    let rapdu = match card.transmit(apdu, &mut rapdu_buf) {
-        Ok(rapdu) => rapdu,
+    let rapdu = match card.transmit(&Vec::from(apdu2), &mut rapdu_buf) {
+        Ok(rapdu) => ResponseAPDU::try_from(rapdu)?,
         Err(err) => {
             eprintln!("Failed to transmit APDU command to card: {}", err);
             std::process::exit(1);
         }
     };
+
     println!("APDU response: {:?}", rapdu);
+
+    Ok(())
 }
