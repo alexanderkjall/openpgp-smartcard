@@ -90,6 +90,109 @@ enum INS {
     TerminateCardUsage = 0xFE,
 }
 
+/// return status codes to messages
+pub fn response_message(sw1: &u8, sw2: &u8) -> String {
+    match sw1 {
+        0x62 => {
+            match sw2 {
+                0x00 => "No information given",
+                0x02..=0x80 => "Triggering by the card (see 12.5.1)",
+                0x81 => "Part of returned data may be corrupted",
+                0x82 => "End of file or record reached before reading N e bytes, or unsuccessful search.",
+                0x83 => "Selected file deactivated",
+                0x84 => "File or data control information not formatted according to 7.4",
+                0x85 => "Selected file in termination state",
+                0x86 => "No input data available from a sensor on the card",
+                0x87 => "At least one of the referenced records is deactivated",
+                _ => "RFU",
+            }
+        },
+        0x63 => {
+            match sw2 {
+                0x00 => "No information given",
+                0x40 => "Unsuccessful comparison (exact meaning depends on the command)",
+                0x81 => "File filled up by the last write",
+                0xC0..=0xCF => "Counter from 0 to 15 encoded by 'X' (exact meaning depends on the command)",
+                _ => "RFU",
+            }
+        },
+        0x64 => {
+            match sw2 {
+                0x00 => "No information given",
+                0x01 => "Immediate response required by the card",
+                0x02..=0x80 => "Triggering by the card (see 12.5.1)",
+                0x81 => "Logical channel shared access denied",
+                0x82 => "Logical channel opening denied",
+                _ => "RFU",
+            }
+        },
+        0x65 => {
+            match sw2 {
+                0x00 => "No information given",
+                0x81 => "Memory failure",
+                _ => "RFU",
+            }
+        },
+        0x66 => {
+            match sw2 {
+                0x00 => "No information given, other values are RFU",
+                _ => "RFU",
+            }
+        },
+        0x67 => {
+            match sw2 {
+                0x00 => "No information given",
+                0x01 => "Command APDU format not compliant with this standard (see 5.1)",
+                0x02 => "The value of L c is not the one expected.",
+                _ => "RFU",
+            }
+        },
+        0x68 => {
+            match sw2 {
+                0x00 => "No information given",
+                0x81 => "Logical channel not supported",
+                0x82 => "Secure messaging not supported",
+                0x83 => "Last command of the chain expected",
+                0x84 => "Command chaining not supported",
+                _ => "RFU",
+            }
+        },
+        0x69 => {
+            match sw2 {
+                0x00 => "No information given",
+                0x81 => "Command incompatible with file structure",
+                0x82 => "Security status not satisfied",
+                0x83 => "Authentication method blocked",
+                0x84 => "Reference data not usable",
+                0x85 => "Conditions of use not satisfied",
+                0x86 => "Command not allowed (no current EF)",
+                0x87 => "Expected secure messaging DOs missing",
+                0x88 => "Incorrect secure messaging DOs",
+                _ => "RFU",
+            }
+        },
+        0x6A => {
+            match sw2 {
+                0x00 => "No information given",
+                0x80 => "Incorrect parameters in the command data field",
+                0x81 => "Function not supported",
+                0x82 => "File or application not found",
+                0x83 => "Record not found",
+                0x84 => "Not enough memory space in the file",
+                0x85 => "N c inconsistent with TLV structure",
+                0x86 => "Incorrect parameters P1-P2",
+                0x87 => "N c inconsistent with parameters P1-P2",
+                0x88 => "Referenced data or reference data not found (exact meaning depending on the command)",
+                0x89 => "File already exists",
+                0x8A => "DF name already exists",
+                _ => "RFU",
+            }
+        },
+        _ => "RFU",
+    }.to_string()
+}
+
+
 #[derive(Debug)]
 struct CommandAPDU {
     /// Instruction class - indicates the type of command, e.g. interindustry or proprietary
@@ -244,7 +347,7 @@ fn main() -> Result<()> {
         }
     };
 
-    println!("APDU response: {:?}", rapdu);
+    println!("APDU response: {:?}, {}", &rapdu, response_message(&rapdu.sw1, &rapdu.sw2));
 
     Ok(())
 }
