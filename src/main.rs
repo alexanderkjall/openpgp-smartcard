@@ -90,6 +90,46 @@ enum INS {
     TerminateCardUsage = 0xFE,
 }
 
+#[derive(PartialEq)]
+enum SecureMessageIndicator {
+    NoSmOrNoIndication,
+    Proprietary,
+    SmAccordingToClause10
+}
+
+#[derive(Debug)]
+struct CLA {
+    pub value: u8,
+}
+
+impl CLA {
+    fn new(command_chaining_control: bool, smi: SecureMessageIndicator, channel: u8) -> Result<CLA> {
+        if channel > 19 {
+            return Err(crate::Error::from("Illegal CLA state"));
+        }
+        if channel > 3 && smi == SecureMessageIndicator::Proprietary {
+            return Err(crate::Error::from("Illegal CLA state"));
+        }
+        let value:u8 = if channel > 3 {
+            let smi_value: u8 = match smi {
+                SecureMessageIndicator::NoSmOrNoIndication => { 0 }
+                SecureMessageIndicator::Proprietary => { 0 }
+                SecureMessageIndicator::SmAccordingToClause10 => { 2_u8.pow(5) }
+            };
+            channel + (if command_chaining_control { 1 } else { 0 }) * 2_u8.pow(4) + smi_value
+        } else {
+            let smi_value: u8 = match smi {
+                SecureMessageIndicator::NoSmOrNoIndication => { 0 }
+                SecureMessageIndicator::Proprietary => { 2_u8.pow(2) }
+                SecureMessageIndicator::SmAccordingToClause10 => { 2_u8.pow(3) }
+            };
+            channel + (if command_chaining_control { 1 } else { 0 }) * 2_u8.pow(4) + smi_value
+        };
+        Ok(CLA {
+            value
+        })
+    }
+}
 /// return status codes to messages
 pub fn response_message(sw1: &u8, sw2: &u8) -> String {
     match sw1 {
@@ -188,6 +228,36 @@ pub fn response_message(sw1: &u8, sw2: &u8) -> String {
                 _ => "RFU",
             }
         },
+        0x6B => {
+            match sw2 {
+                0x00 => "Wrong parameters P1-P2",
+                _ => "RFU",
+            }
+        },
+        0x6C => {
+            "Wrong L e field; SW2 encodes the exact number of available data bytes"
+        },
+        0x6D => {
+            match sw2 {
+                0x00 => "Instruction code not supported or invalid",
+                _ => "RFU",
+            }
+        },
+        0x6E => {
+            match sw2 {
+                0x00 => "Class not supported",
+                _ => "RFU",
+            }
+        },
+        0x6F => {
+            match sw2 {
+                0x00 => "No precise diagnosis",
+                _ => "RFU",
+            }
+        },
+        0x90 => {
+            "No further qualification"
+        },
         _ => "RFU",
     }.to_string()
 }
@@ -196,7 +266,7 @@ pub fn response_message(sw1: &u8, sw2: &u8) -> String {
 #[derive(Debug)]
 struct CommandAPDU {
     /// Instruction class - indicates the type of command, e.g. interindustry or proprietary
-    cla: u8,
+    cla: CLA,
     /// Instruction code - indicates the specific command, e.g. "write data"
     ins: INS,
     /// Instruction parameters for the command byte 1, e.g. offset into file at which to write the data
@@ -219,7 +289,7 @@ struct CommandAPDU {
 }
 
 impl CommandAPDU {
-    pub fn new(cla: u8, ins: INS, p1: u8, p2: u8, data: Vec<u8>, le: u16) -> Result<CommandAPDU> {
+    pub fn new(cla: CLA, ins: INS, p1: u8, p2: u8, data: Vec<u8>, le: u16) -> Result<CommandAPDU> {
         Ok(CommandAPDU {
             cla,
             ins,
@@ -236,7 +306,7 @@ impl From<CommandAPDU> for Vec<u8> {
     fn from(w: CommandAPDU) -> Vec<u8> {
         let mut v: Vec<u8> = vec![];
 
-        v.push(w.cla);
+        v.push(w.cla.value);
         v.push(w.ins as u8);
         v.push(w.p1);
         v.push(w.p2);
@@ -330,7 +400,7 @@ fn main() -> Result<()> {
 
     // Send an APDU command.
     let apdu2 = CommandAPDU::new(
-        0x00,
+        CLA::new(false, SecureMessageIndicator::NoSmOrNoIndication, 0x00)?,
         INS::Select,
         0x04,
         0x00,
@@ -356,7 +426,7 @@ mod test {
     #[test]
     fn apdu() {
         let apdu = crate::CommandAPDU::new(
-            0x00,
+            crate::CLA::new(false, crate::SecureMessageIndicator::NoSmOrNoIndication, 0x00).unwrap(),
             crate::INS::Select,
             0x04,
             0x00,
